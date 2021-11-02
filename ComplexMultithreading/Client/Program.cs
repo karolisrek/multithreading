@@ -5,7 +5,11 @@
         static void Main(string[] args)
         {
             var client = new ComplexMultithreadingClient.Client();
-            client.Start();
+            // Start client that uses tasks
+            //client.StartTpl();
+
+            // Start client that uses threads
+            client.StartThread();
         }
     }
 }

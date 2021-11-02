@@ -25,43 +25,18 @@ namespace ComplexMultithreadingClient
             "hello",
         };
 
-        public void Start()
+        public void StartTpl()
         {
             try
             {
                 var client = new TcpClient("127.0.0.1", 13000);
                 var stream = client.GetStream();
 
-                var messageCount = Utils.GetNumberOfMessagesToSend();
+                StartReceivingMessages(client);
 
-                Console.WriteLine($"Messages to send = {messageCount}");
+                SendMessages(client, Utils.GetNumberOfMessagesToSend());
 
-                Task.Run(() =>
-                {
-                    while (client.Connected)
-                    {
-                        try
-                        {
-                            var data = new byte[256];
-                            var bytes = stream.Read(data, 0, data.Length);
-                            var responseData = System.Text.Encoding.ASCII.GetString(data, 0, bytes);
-                            if (!string.IsNullOrEmpty(responseData))
-                            {
-                                Console.WriteLine("Received: {0}", responseData);
-                            }
-                        }
-                        catch(Exception) { }
-                    }
-                });
-
-                for (var i = 0; i < messageCount; i++)
-                {
-                    SendMessage(client);
-
-                    Thread.Sleep(Utils.GetRandomDelay());
-                }
-
-                client.GetStream().Close();
+                stream.Close();
                 client.Close();
             }
             catch (ArgumentNullException e)
@@ -77,10 +52,149 @@ namespace ComplexMultithreadingClient
             Console.Read();
         }
 
+        public void StartThread()
+        {
+            try
+            {
+                var client = new TcpClient("127.0.0.1", 13000);
+                var stream = client.GetStream();
+                var unfinishedMessage = "";
+
+                ReceiveMessagesFromHistory(client);
+
+                for (var i = 0; i < Utils.GetNumberOfMessagesToSend(); i++)
+                {
+                    SendMessage(client);
+
+                    unfinishedMessage = PrintReceivedMessages(stream, unfinishedMessage);
+                    Thread.Sleep(Utils.GetRandomDelay());
+                }
+
+                stream.Close();
+                client.Close();
+            }
+            catch (ArgumentNullException e)
+            {
+                Console.WriteLine("ArgumentNullException: {0}", e);
+            }
+            catch (SocketException e)
+            {
+                Console.WriteLine("SocketException: {0}", e);
+            }
+
+            Console.WriteLine("\n Press Enter to continue...");
+            Console.Read();
+        }
+
+        private void ReceiveMessagesFromHistory(TcpClient client)
+        {
+            var unfinishedMessage = "";
+            var stream = client.GetStream();
+
+            while (client.Connected)
+            {
+                try
+                {
+                    var bytes = new byte[256];
+                    var count = stream.Read(bytes, 0, bytes.Length);
+                    var responseData = Utils.GetMessagesFromResponse(bytes, count);
+
+                    foreach (var receiveivedMessage in responseData)
+                    {
+                        if (string.IsNullOrWhiteSpace(receiveivedMessage))
+                        {
+                            continue;
+                        }
+
+                        if (receiveivedMessage.Contains(Consts.EndOfMessage))
+                        {
+                            if (receiveivedMessage.Contains(Consts.HistorySendSuccessfully))
+                            {
+                                return;
+                            }
+
+                            var messageToPrint = string.IsNullOrWhiteSpace(unfinishedMessage)
+                                ? receiveivedMessage
+                                : $"{unfinishedMessage}{receiveivedMessage}";
+
+                            Console.WriteLine($"Received: {messageToPrint.ToHumanReadable()}");
+                            unfinishedMessage = "";
+                        }
+                        else
+                        {
+                            unfinishedMessage = receiveivedMessage;
+                        }
+                    }
+                }
+                catch (Exception) { }
+            }
+        }
+
+        private void StartReceivingMessages(TcpClient client)
+        {
+            var stream = client.GetStream();
+
+            Task.Run(() =>
+            {
+                var unfinishedMessage = "";
+
+                while (client.Connected)
+                {
+                    unfinishedMessage = PrintReceivedMessages(stream, unfinishedMessage);
+                }
+            });
+        }
+
+        string PrintReceivedMessages(NetworkStream stream, string unfinishedMessage)
+        {
+            try
+            {
+                var bytes = new byte[256];
+                stream.ReadTimeout = 500;
+                var count = stream.Read(bytes, 0, bytes.Length);
+                var responseData = Utils.GetMessagesFromResponse(bytes, count);
+
+                foreach(var receiveivedMessage in responseData)
+                {
+                    if (string.IsNullOrWhiteSpace(receiveivedMessage))
+                    {
+                        continue;
+                    }
+
+                    if (receiveivedMessage.Contains(Consts.EndOfMessage))
+                    {
+                        var messageToPrint = string.IsNullOrWhiteSpace(unfinishedMessage)
+                            ? receiveivedMessage
+                            : $"{unfinishedMessage}{receiveivedMessage}";
+
+                        Console.WriteLine($"Received: {messageToPrint.ToHumanReadable()}");
+                        unfinishedMessage = "";
+                    }
+                    else
+                    {
+                        unfinishedMessage = receiveivedMessage;
+                    }
+                }
+            }
+            catch(Exception) { }
+
+            return unfinishedMessage;
+        }
+
+        void SendMessages(TcpClient client, long messageCount)
+        {
+            for (var i = 0; i < messageCount; i++)
+            {
+                SendMessage(client);
+
+                Thread.Sleep(Utils.GetRandomDelay());
+            }
+        }
+
         void SendMessage(TcpClient client)
         {
             string message = GetMessage();
-            var data = message.ToByteArray();
+            var data = message.ToSendable();
 
             NetworkStream stream = client.GetStream();
 

@@ -8,7 +8,11 @@ namespace Server
         static void Main(string[] args)
         {
             var server = new ComplexMultithreadingServer.Server();
-            server.Start();
+            // start server that uses threads
+            server.StartThread();
+
+            // start server that uses tasks
+            //server.StartTpl();
         }
     }
 }
